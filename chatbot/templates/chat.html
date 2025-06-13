@@ -2,88 +2,212 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>AI Gent Genarative Platform</title>
+    <title>AI Agent Generative Platform</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background: #f7f7fa; font-family: 'Segoe UI', Arial, sans-serif; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
-        .chatbot-container { background: #fff; margin-top: 40px; border-radius: 12px; box-shadow: 0 2px 24px rgba(0,0,0,0.10); max-width: 400px; padding: 24px 30px 30px 30px; width: 100%; }
-        .chat-title { font-size: 1.4em; font-weight: 600; margin-bottom: 15px; color: #3a3a55; text-align: center; }
-        .chat-messages { margin-bottom: 10px; min-height: 180px; max-height: 350px; overflow-y: auto; }
-        .message { margin-bottom: 14px; padding: 10px 16px; border-radius: 7px; background: #eef1fa; color: #25253a; width: fit-content; }
-        .message.user { background: #5c67f2; color: #fff; margin-left: auto; }
-        .chat-input-container { display: flex; gap: 8px; }
-        .chat-input { flex: 1; border: 1px solid #dadada; border-radius: 6px; padding: 9px 13px; font-size: 1em; }
-        .send-btn { background: #5c67f2; color: #fff; border: none; border-radius: 6px; padding: 10px 18px; font-size: 1em; cursor: pointer; transition: background 0.2s;}
-        .send-btn:hover { background: #4349d6; }
-        .bot-buttons { margin-top: 10px; display: flex; gap: 8px; }
-        .bot-button { background: #4349d6; color: #fff; border: none; border-radius: 6px; padding: 10px 18px; font-size: 1em; cursor: pointer; }
-        .bot-button:hover { background: #5c67f2; }
+        body {
+            background: #f7f7fa;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+        .chatbot-container {
+            background: #fff;
+            margin-top: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 24px rgba(0,0,0,0.10);
+            max-width: 400px;
+            padding: 24px 30px 30px 30px;
+            width: 100%;
+        }
+        .chat-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #3a3a55;
+            text-align: center;
+        }
+        .chat-messages {
+            margin-bottom: 10px;
+            min-height: 180px;
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        .message {
+            margin-bottom: 14px;
+            padding: 10px 16px;
+            border-radius: 7px;
+            background: #eef1fa;
+            color: #25253a;
+            width: fit-content;
+        }
+        .message.user {
+            background: #5c67f2;
+            color: #fff;
+            margin-left: auto;
+        }
+        .chat-input-container {
+            display: flex;
+            gap: 8px;
+        }
+        .chat-input {
+            flex: 1;
+            border: 1px solid #dadada;
+            border-radius: 6px;
+            padding: 9px 13px;
+            font-size: 1em;
+        }
+        .send-btn {
+            background: #5c67f2;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .send-btn:hover {
+            background: #4349d6;
+        }
+        .bot-buttons {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+        }
+        .bot-button {
+            background: #4349d6;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+        .bot-button:hover {
+            background: #5c67f2;
+        }
     </style>
 </head>
 <body>
-    <div class="chatbot-container">
-        <div class="chat-title">AI Gent Genarative Platform</div>
-        <div class="chat-messages" id="chat-messages"></div>
-        <div id="bot-buttons" class="bot-buttons"></div>
-        <div class="chat-input-container">
-            <input class="chat-input" id="chat-input" type="text" placeholder="Type here..." autocomplete="off" />
-            <button class="send-btn" id="send-btn">Send</button>
-        </div>
+<div class="chatbot-container">
+    <div class="chat-title">AI Agent Generative Platform</div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div id="bot-buttons" class="bot-buttons"></div>
+    <div class="chat-input-container">
+        <input class="chat-input" id="chat-input" type="text" placeholder="Type here..." autocomplete="off" />
+        <button class="send-btn" id="send-btn">Send</button>
     </div>
-    <script>
-        const chatMessages = document.getElementById("chat-messages");
-        const chatInput = document.getElementById("chat-input");
-        const sendBtn = document.getElementById("send-btn");
-        const botButtons = document.getElementById("bot-buttons");
+</div>
+<script>
+    const chatMessages = document.getElementById("chat-messages");
+    const chatInput = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("send-btn");
+    const botButtons = document.getElementById("bot-buttons");
 
-        let chatState = "ask_name";
-        let userData = {};
-        let userId = null;
+    let chatState = "ask_name";
+    let userData = {};
+    let userId = null;
 
-        function appendMessage(message, isUser = false) {
-            const div = document.createElement("div");
-            div.className = "message" + (isUser ? " user" : "");
-            div.textContent = message;
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+    function appendMessage(message, isUser = false) {
+        const div = document.createElement("div");
+        div.className = "message" + (isUser ? " user" : "");
+        div.textContent = message;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showBotButtons(buttons) {
+        botButtons.innerHTML = "";
+        buttons.forEach(btn => {
+            const button = document.createElement("button");
+            button.className = "bot-button";
+            button.textContent = btn.title;
+            button.onclick = () => handleFieldSelect(btn.payload);
+            botButtons.appendChild(button);
+        });
+    }
+
+    function setInput(enabled, placeholder = '') {
+        chatInput.disabled = !enabled;
+        sendBtn.disabled = !enabled;
+        chatInput.placeholder = placeholder;
+        if (enabled) chatInput.focus();
+    }
+
+    function startChat() {
+        appendMessage("Hello! What is your or your company's name?");
+        setInput(true, "Enter your/company name...");
+    }
+
+    async function handleFieldSelect(field) {
+        appendMessage(field.charAt(0).toUpperCase() + field.slice(1), true);
+        botButtons.innerHTML = "";
+        setInput(false);
+
+        const fd = new FormData();
+        fd.append("action", "field");
+        fd.append("user_id", userId);
+        fd.append("field", field);
+
+        appendMessage("Processing...", false);
+
+        const res = await fetch("/chat/api/", { method: "POST", body: fd });
+        const data = await res.json();
+        chatMessages.lastChild.remove();
+
+        if (data.error) {
+            appendMessage("Error: " + data.error, false);
+            return;
         }
+        appendMessage(data.message, false);
+    }
 
-        function showBotButtons(buttons) {
-            botButtons.innerHTML = "";
-            buttons.forEach(btn => {
-                const button = document.createElement("button");
-                button.className = "bot-button";
-                button.textContent = btn.title;
-                button.onclick = () => handleFieldSelect(btn.payload);
-                botButtons.appendChild(button);
-            });
-        }
+    async function handleUserInput() {
+        const msg = chatInput.value.trim();
+        if (!msg) return;
+        appendMessage(msg, true);
+        chatInput.value = "";
 
-        function setInput(enabled, placeholder='') {
-            chatInput.disabled = !enabled;
-            sendBtn.disabled = !enabled;
-            chatInput.placeholder = placeholder;
-            if (enabled) chatInput.focus();
-        }
+        if (chatState === "ask_name") {
+            userData.name = msg;
+            appendMessage(`Hi ${msg}!`, false);
+            chatState = "ask_contact";
+            setTimeout(() => {
+                appendMessage("What is your contact number?", false);
+                setInput(true, "Enter your contact number...");
+            }, 400);
+        } else if (chatState === "ask_contact") {
+            const phoneRegex = /^(\+94\d{9}|0\d{9})$/;
+            if (!phoneRegex.test(msg)) {
+                appendMessage("❗ Invalid contact number. Please enter a valid number (e.g., +94XXXXXXXX or 071XXXXXXX).", false);
+                setInput(true, "Enter a valid contact number...");
+                return;
+            }
+            userData.contact = msg;
+            chatState = "ask_email";
+            appendMessage("What is your email?", false);
+            setInput(true, "Enter your email...");
+        } else if (chatState === "ask_email") {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(msg)) {
+                appendMessage("❗ Invalid email address. Please enter a valid email (e.g., example@domain.com).", false);
+                setInput(true, "Enter a valid email...");
+                return;
+            }
 
-        // Initial greeting
-        function startChat() {
-            appendMessage("Hello! What is your or your company's name?");
-            setInput(true, "Enter your/company name...");
-        }
-
-        async function handleFieldSelect(field) {
-            appendMessage(field.charAt(0).toUpperCase() + field.slice(1), true);
-            botButtons.innerHTML = "";
+            userData.email = msg;
+            chatState = "ask_field";
             setInput(false);
-
-            // Send selected field to backend
-            const fd = new FormData();
-            fd.append("action", "field");
-            fd.append("user_id", userId);
-            fd.append("field", field);
-
             appendMessage("Processing...", false);
+
+            const fd = new FormData();
+            fd.append("action", "form");
+            fd.append("name", userData.name);
+            fd.append("contact", userData.contact);
+            fd.append("email", userData.email);
 
             const res = await fetch("/chat/api/", { method: "POST", body: fd });
             const data = await res.json();
@@ -91,70 +215,23 @@
 
             if (data.error) {
                 appendMessage("Error: " + data.error, false);
+                chatState = "ask_email";
+                setInput(true, "Enter your email...");
                 return;
             }
+
+            userId = data.user_id;
             appendMessage(data.message, false);
+            if (data.buttons) showBotButtons(data.buttons);
         }
+    }
 
-        async function handleUserInput() {
-            const msg = chatInput.value.trim();
-            if (!msg) return;
-            appendMessage(msg, true);
-            chatInput.value = "";
+    sendBtn.addEventListener("click", handleUserInput);
+    chatInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") handleUserInput();
+    });
 
-            // Chat flow logic
-            if (chatState === "ask_name") {
-                userData.name = msg;
-                appendMessage(`Hi ${msg}!`, false);
-                chatState = "ask_contact";
-                setTimeout(() => {
-                    appendMessage("What is your contact number?", false);
-                    setInput(true, "Enter your contact number...");
-                }, 400);
-            }
-            else if (chatState === "ask_contact") {
-                userData.contact = msg;
-                chatState = "ask_email";
-                appendMessage("What is your email?", false);
-                setInput(true, "Enter your email...");
-            }
-            else if (chatState === "ask_email") {
-                userData.email = msg;
-                chatState = "ask_field";
-                setInput(false);
-                appendMessage("Processing...", false);
-
-                // Send data to backend to create user and get field buttons
-                const fd = new FormData();
-                fd.append("action", "form");
-                fd.append("name", userData.name);
-                fd.append("contact", userData.contact);
-                fd.append("email", userData.email);
-
-                const res = await fetch("/chat/api/", { method: "POST", body: fd });
-                const data = await res.json();
-                chatMessages.lastChild.remove();
-
-                if (data.error) {
-                    appendMessage("Error: " + data.error, false);
-                    chatState = "ask_email";
-                    setInput(true, "Enter your email...");
-                    return;
-                }
-
-                userId = data.user_id;
-                appendMessage(data.message, false);
-                if (data.buttons) showBotButtons(data.buttons);
-            }
-        }
-
-        sendBtn.addEventListener("click", handleUserInput);
-        chatInput.addEventListener("keydown", function(e) {
-            if (e.key === "Enter") handleUserInput();
-        });
-
-        // Start chat on page load
-        window.onload = startChat;
-    </script>
+    window.onload = startChat;
+</script>
 </body>
 </html>
