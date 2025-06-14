@@ -1,0 +1,38 @@
+[
+  {
+    "uid": "231ef197-bf68-4188-b94d-462bcc9b1828",
+    "json": {
+      "uid": "231ef197-bf68-4188-b94d-462bcc9b1828",
+      "name": "Linton Hotel",
+      "contact": "0997773232",
+      "email": "exmple3@gmail.com",
+      "field": "transport",
+      "answers": {
+        "What type of transport services does your business provide?": "Goods/Freight Transport",
+        "What is the size of your vehicle fleet?": "123",
+        "Which types of vehicles do you operate?": "Trucks",
+        "What geographic areas do you primarily serve?": "Kandy",
+        "Do you offer any value-added services (e.g., refrigerated transport, tracking, insurance)?": "Matale",
+        "Who are your primary clients?": "Businesses"
+      }
+    }
+  },
+  {
+    "uid": "1eb386ed-f3f5-4a99-a546-a12bf5b48934",
+    "json": {
+      "uid": "1eb386ed-f3f5-4a99-a546-a12bf5b48934",
+      "name": "Food City",
+      "contact": "0997866322",
+      "email": "exmple04@gmail.com",
+      "field": "tourism",
+      "answers": {
+        "What type of tourism services does your business provide?": "Guided Tours",
+        "Do you offer accommodation facilities?": "Yes",
+        "What are your main target markets?": "International tourists",
+        "Where is your business primarily located?": "Galle",
+        "Do you provide online booking or reservation services?": "Yes",
+        "What unique features or experiences does your business offer?": "No"
+      }
+    }
+  }
+]

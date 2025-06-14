@@ -90,7 +90,6 @@
         .bot-button:hover {
             background: #5c67f2;
         }
-        /* .json-answers { ... }  REMOVE this style if you want */
     </style>
 </head>
 <body>
@@ -189,12 +188,14 @@
     async function handleButtonAnswer(optionValue) {
         appendMessage(optionValue, true);
         botButtons.innerHTML = "";
-        // Advance to next question (do NOT send answer to backend for saving)
+        // SEND answer and question_id to backend!
         const data = await postJson({
             action: "field_questions",
             uid,
             field: currentField,
-            question_index: questionIndex
+            question_index: questionIndex,
+            answer: optionValue,
+            question_id: latestQuestionId
         });
         questionIndex++;
         latestQuestionType = data.type;
@@ -261,12 +262,14 @@
                 setInput(false);
                 return;
             }
-            // Advance to next question (do NOT send answer to backend for saving)
+            // SEND answer and question_id to backend!
             const data = await postJson({
                 action: "field_questions",
                 uid,
                 field: currentField,
-                question_index: questionIndex
+                question_index: questionIndex,
+                answer: msg,
+                question_id: latestQuestionId
             });
             questionIndex++;
             latestQuestionType = data.type;

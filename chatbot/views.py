@@ -2,12 +2,12 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .mongo_client import collection
+from .rag_client import rag_db
 import json
 import re
 import uuid
 import os
 
-# Load question tree JSON
 TREE_PATH = os.path.join(os.path.dirname(__file__), 'question_tree.json')
 with open(TREE_PATH, 'r') as f:
     QUESTION_TREE = json.load(f)
@@ -22,7 +22,7 @@ def chatbot_api(request):
 
     try:
         data = json.loads(request.body.decode("utf-8"))
-    except:
+    except Exception:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
     action = data.get("action", "")
@@ -32,33 +32,42 @@ def chatbot_api(request):
     email = data.get("email", "").strip()
     field_selected = data.get("field", "").lower()
     current_index = data.get("question_index", 0)
-    # answer and question_id are no longer needed for saving
 
-    # Step 1: Save Name and generate UID
+    session = request.session
+
     if action == "name":
         if not name:
             return JsonResponse({"error": "Name is required"}, status=400)
         generated_uid = str(uuid.uuid4())
         user_data = {"uid": generated_uid, "name": name}
         collection.insert_one(user_data)
+        session["uid"] = generated_uid
+        session["name"] = name
+        session["answers"] = {}
+        session["field"] = None
+        session["contact"] = None
+        session["email"] = None
+        session.modified = True
         return JsonResponse({"message": f"Hi {name}!", "uid": generated_uid})
 
-    # Step 2: Save Contact
     elif action == "contact":
         if not (uid and contact):
             return JsonResponse({"error": "Missing uid or contact"}, status=400)
         if not re.match(r'^(\+94\d{9}|0\d{9})$', contact):
             return JsonResponse({"error": "Invalid contact number"}, status=400)
         collection.update_one({"uid": uid}, {"$set": {"contact": contact}})
+        session["contact"] = contact
+        session.modified = True
         return JsonResponse({"message": "Contact saved!"})
 
-    # Step 3: Save Email
     elif action == "email":
         if not (uid and email):
             return JsonResponse({"error": "Missing uid or email"}, status=400)
         if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
             return JsonResponse({"error": "Invalid email address"}, status=400)
         collection.update_one({"uid": uid}, {"$set": {"email": email}})
+        session["email"] = email
+        session.modified = True
         buttons = [
             {"title": "Agriculture", "payload": "agriculture"},
             {"title": "Transport", "payload": "transport"},
@@ -66,16 +75,15 @@ def chatbot_api(request):
         ]
         return JsonResponse({"message": "What is your field?", "buttons": buttons})
 
-    # Step 4: Save Field & Immediately Ask First Question
     elif action == "field":
         if not (uid and field_selected):
             return JsonResponse({"error": "Missing uid or field"}, status=400)
         if field_selected not in QUESTION_TREE:
             return JsonResponse({"error": "Invalid field selected"}, status=400)
-
         collection.update_one({"uid": uid}, {"$set": {"field": field_selected}})
+        session["field"] = field_selected
+        session.modified = True
         first_question = QUESTION_TREE[field_selected][0]
-
         return JsonResponse({
             "message": f"Thank you! You selected '{field_selected.capitalize()}'. Let's begin.",
             "field": field_selected,
@@ -88,13 +96,35 @@ def chatbot_api(request):
             "options": first_question.get("options", [])
         })
 
-    # Step 5: Continue Asking Field Questions (DO NOT SAVE ANSWERS)
     elif action == "field_questions":
-        if not field_selected or field_selected not in QUESTION_TREE:
-            return JsonResponse({"error": "Invalid or missing field"}, status=400)
+        answer = data.get("answer")
+        question_id = data.get("question_id")
+        field_selected = session.get("field") or field_selected
+        questions = QUESTION_TREE.get(field_selected, [])
+        if uid != session.get("uid"):
+            return JsonResponse({"error": "Session/uid mismatch"}, status=400)
+        if answer is not None and question_id is not None:
+            question_obj = next((q for q in questions if q["id"] == question_id), None)
+            if question_obj:
+                question_text = question_obj["question"]
+                answers = session.get("answers", {})
+                answers[question_text] = answer
+                session["answers"] = answers
+                session.modified = True
 
-        questions = QUESTION_TREE[field_selected]
         if current_index >= len(questions):
+            user_json = {
+                "uid": session["uid"],
+                "name": session.get("name"),
+                "contact": session.get("contact"),
+                "email": session.get("email"),
+                "field": session.get("field"),
+                "answers": session.get("answers", {})
+            }
+            rag_db.add_json(user_json)
+            if "answers" in session:
+                del session["answers"]
+            session.modified = True
             return JsonResponse({
                 "message": "All questions have been completed. Thank you!"
             })
