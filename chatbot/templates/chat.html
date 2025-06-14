@@ -76,6 +76,7 @@
             margin-top: 10px;
             display: flex;
             gap: 8px;
+            flex-wrap: wrap;
         }
         .bot-button {
             background: #4349d6;
@@ -89,6 +90,7 @@
         .bot-button:hover {
             background: #5c67f2;
         }
+        /* .json-answers { ... }  REMOVE this style if you want */
     </style>
 </head>
 <body>
@@ -108,7 +110,12 @@
     const botButtons = document.getElementById("bot-buttons");
 
     let chatState = "ask_name";
-    let userId = null;
+    let uid = null;
+    let currentField = null;
+    let questionIndex = 1;
+    let latestQuestionType = null;
+    let latestOptions = null;
+    let latestQuestionId = null;
 
     function appendMessage(message, isUser = false) {
         const div = document.createElement("div");
@@ -118,13 +125,13 @@
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    function showBotButtons(buttons) {
+    function showBotButtons(buttons, onClickFunc) {
         botButtons.innerHTML = "";
         buttons.forEach(btn => {
             const button = document.createElement("button");
             button.className = "bot-button";
-            button.textContent = btn.title;
-            button.onclick = () => handleFieldSelect(btn.payload);
+            button.textContent = btn.title || btn;
+            button.onclick = () => onClickFunc(btn.payload || btn);
             botButtons.appendChild(button);
         });
     }
@@ -134,11 +141,6 @@
         sendBtn.disabled = !enabled;
         chatInput.placeholder = placeholder;
         if (enabled) chatInput.focus();
-    }
-
-    function startChat() {
-        appendMessage("Hello! What is your or your company's name?");
-        setInput(true, "Enter your/company name...");
     }
 
     async function postJson(data) {
@@ -164,20 +166,52 @@
     async function handleFieldSelect(field) {
         appendMessage(field.charAt(0).toUpperCase() + field.slice(1), true);
         botButtons.innerHTML = "";
-        try {
-            const data = await postJson({
-                action: "field",
-                user_id: userId,
-                field: field
-            });
-            if (data.error) {
-                appendMessage("Error: " + data.error, false);
-                setInput(true);
-                return;
+        currentField = field;
+        questionIndex = 1;
+        // Send "field" action first to save the field and get the first question
+        const data = await postJson({ action: "field", uid, field });
+        appendMessage(data.message, false);
+
+        latestQuestionType = data.type;
+        latestOptions = data.options;
+        latestQuestionId = data.question_id;
+        if (data.type === "button" && Array.isArray(data.options) && data.options.length > 0) {
+            appendMessage(data.question, false);
+            showBotButtons(data.options, handleButtonAnswer);
+            setInput(false);
+        } else {
+            appendMessage(data.question, false);
+            setInput(true, "Answer here...");
+        }
+        chatState = "field_questions";
+    }
+
+    async function handleButtonAnswer(optionValue) {
+        appendMessage(optionValue, true);
+        botButtons.innerHTML = "";
+        // Advance to next question (do NOT send answer to backend for saving)
+        const data = await postJson({
+            action: "field_questions",
+            uid,
+            field: currentField,
+            question_index: questionIndex
+        });
+        questionIndex++;
+        latestQuestionType = data.type;
+        latestOptions = data.options;
+        latestQuestionId = data.question_id;
+        if (data.question) {
+            appendMessage(data.question, false);
+            if (data.type === "button" && Array.isArray(data.options) && data.options.length > 0) {
+                showBotButtons(data.options, handleButtonAnswer);
+                setInput(false);
+            } else {
+                setInput(true, "Answer here...");
             }
-            appendMessage(data.message, false);
-            setInput(false, "");
-        } catch (e) {}
+        } else {
+            appendMessage(data.message || "Thanks for your responses!", false);
+            setInput(false);
+        }
     }
 
     async function handleUserInput() {
@@ -187,61 +221,69 @@
         chatInput.value = "";
 
         if (chatState === "ask_name") {
-            try {
-                const data = await postJson({ action: "name", name: msg });
-                if (data.error) {
-                    appendMessage("Error: " + data.error, false);
-                    setInput(true, "Enter your/company name...");
-                    return;
-                }
-                userId = data.user_id;
-                appendMessage("Hi " + msg + "!", false);
-                chatState = "ask_contact";
-                setTimeout(() => {
-                    appendMessage("What is your contact number?", false);
-                    setInput(true, "Enter your contact number...");
-                }, 400);
-            } catch (e) {}
+            const data = await postJson({ action: "name", name: msg });
+            uid = data.uid;
+            appendMessage("Hi " + msg + "!", false);
+            appendMessage("What is your contact number?", false);
+            chatState = "ask_contact";
+            setInput(true, "Enter your contact number...");
+        }
 
-        } else if (chatState === "ask_contact") {
-            const phoneRegex = /^(\+94\d{9}|0\d{9})$/;
+        else if (chatState === "ask_contact") {
+            const phoneRegex = /^\+94\d{9}|0\d{9}$/;
             if (!phoneRegex.test(msg)) {
                 appendMessage("❗ Invalid contact number. Please enter a valid number (e.g., +94XXXXXXXXX or 071XXXXXXX).", false);
-                setInput(true, "Enter a valid contact number...");
+                setInput(true, "Enter your contact number...");
                 return;
             }
-            try {
-                const data = await postJson({ action: "contact", user_id: userId, contact: msg });
-                if (data.error) {
-                    appendMessage("Error: " + data.error, false);
-                    setInput(true, "Enter your contact number...");
-                    return;
-                }
-                appendMessage("What is your email?", false);
-                chatState = "ask_email";
-                setInput(true, "Enter your email...");
-            } catch (e) {}
+            const data = await postJson({ action: "contact", uid, contact: msg });
+            appendMessage("What is your email?", false);
+            chatState = "ask_email";
+            setInput(true, "Enter your email...");
+        }
 
-        } else if (chatState === "ask_email") {
+        else if (chatState === "ask_email") {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(msg)) {
                 appendMessage("❗ Invalid email address. Please enter a valid email (e.g., example@domain.com).", false);
                 setInput(true, "Enter a valid email...");
                 return;
             }
-            try {
-                const data = await postJson({ action: "email", user_id: userId, email: msg });
-                if (data.error) {
-                    appendMessage("Error: " + data.error, false);
-                    setInput(true, "Enter your email...");
-                    return;
-                }
-                appendMessage(data.message, false);
-                if (data.buttons) showBotButtons(data.buttons);
-                chatState = "ask_field";
-                setInput(false, "");
-            } catch (e) {}
+            const data = await postJson({ action: "email", uid, email: msg });
+            appendMessage(data.message, false);
+            showBotButtons(data.buttons, handleFieldSelect);
+            chatState = "select_field";
+        }
 
+        else if (chatState === "field_questions") {
+            if (latestQuestionType === "button" && Array.isArray(latestOptions) && latestOptions.length > 0) {
+                appendMessage("Please select an option above.", false);
+                setInput(false);
+                return;
+            }
+            // Advance to next question (do NOT send answer to backend for saving)
+            const data = await postJson({
+                action: "field_questions",
+                uid,
+                field: currentField,
+                question_index: questionIndex
+            });
+            questionIndex++;
+            latestQuestionType = data.type;
+            latestOptions = data.options;
+            latestQuestionId = data.question_id;
+            if (data.question) {
+                appendMessage(data.question, false);
+                if (data.type === "button" && Array.isArray(data.options) && data.options.length > 0) {
+                    showBotButtons(data.options, handleButtonAnswer);
+                    setInput(false);
+                } else {
+                    setInput(true, "Answer here...");
+                }
+            } else {
+                appendMessage(data.message || "Thanks for your responses!", false);
+                setInput(false);
+            }
         }
     }
 
@@ -250,7 +292,10 @@
         if (e.key === "Enter") handleUserInput();
     });
 
-    window.onload = startChat;
+    window.onload = () => {
+        appendMessage("Hello! What is your or your company's name?");
+        setInput(true, "Enter your/company name...");
+    };
 </script>
 </body>
 </html>

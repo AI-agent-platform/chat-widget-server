@@ -1,0 +1,106 @@
+{
+  "agriculture": [
+    {
+      "id": "agri_q1",
+      "question": "Which type of agricultural practice best describes your business?",
+      "type": "button",
+      "options": ["Crop farming", "Livestock farming", "Mixed farming", "Aquaculture", "Other"]
+    },
+    {
+      "id": "agri_q2",
+      "question": "What is the scale of your agricultural operation?",
+      "type": "button",
+      "options": ["Small", "Medium", "Large"]
+    },
+    {
+      "id": "agri_q3",
+      "question": "Where is your primary agricultural area located? (Please specify city/region)",
+      "type": "text"
+    },
+    {
+      "id": "agri_q4",
+      "question": "What are your main products or crops?",
+      "type": "text"
+    },
+    {
+      "id": "agri_q5",
+      "question": "Who are your target customers or audience?",
+      "type": "button",
+      "options": ["Local buyers", "Export market", "Retailers", "Wholesalers", "Direct consumers"]
+    },
+    {
+      "id": "agri_q6",
+      "question": "Do you utilize modern technologies such as irrigation systems, drones, or precision agriculture?",
+      "type": "boolean"
+    }
+  ],
+  "transport": [
+    {
+      "id": "trans_q1",
+      "question": "What type of transport services does your business provide?",
+      "type": "button",
+      "options": ["Passenger Transport", "Goods/Freight Transport", "Logistics/Delivery", "Other"]
+    },
+    {
+      "id": "trans_q2",
+      "question": "What is the size of your vehicle fleet?",
+      "type": "number"
+    },
+    {
+      "id": "trans_q3",
+      "question": "Which types of vehicles do you operate?",
+      "type": "button",
+      "options": ["Cars", "Vans", "Trucks", "Buses", "Motorcycles", "Other"]
+    },
+    {
+      "id": "trans_q4",
+      "question": "What geographic areas do you primarily serve?",
+      "type": "text"
+    },
+    {
+      "id": "trans_q5",
+      "question": "Do you offer any value-added services (e.g., refrigerated transport, tracking, insurance)?",
+      "type": "boolean"
+    },
+    {
+      "id": "trans_q6",
+      "question": "Who are your primary clients?",
+      "type": "button",
+      "options": ["Individuals", "Businesses", "Government", "Other"]
+    }
+  ],
+  "tourism": [
+    {
+      "id": "tour_q1",
+      "question": "What type of tourism services does your business provide?",
+      "type": "button",
+      "options": ["Accommodation", "Guided Tours", "Transport", "Adventure Activities", "Cultural Experiences", "Other"]
+    },
+    {
+      "id": "tour_q2",
+      "question": "Do you offer accommodation facilities?",
+      "type": "boolean"
+    },
+    {
+      "id": "tour_q3",
+      "question": "What are your main target markets?",
+      "type": "button",
+      "options": ["Local tourists", "International tourists", "Corporate clients", "Educational groups", "Other"]
+    },
+    {
+      "id": "tour_q4",
+      "question": "Where is your business primarily located?",
+      "type": "text"
+    },
+    {
+      "id": "tour_q5",
+      "question": "Do you provide online booking or reservation services?",
+      "type": "boolean"
+    },
+    {
+      "id": "tour_q6",
+      "question": "What unique features or experiences does your business offer?",
+      "type": "text"
+    }
+  ]
+}
