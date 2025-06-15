@@ -2,7 +2,7 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .mongo_client import collection
-from .rag_client import rag_db
+from .rag_client import rag_db_manager  # Change here
 import json
 import re
 import uuid
@@ -121,7 +121,11 @@ def chatbot_api(request):
                 "field": session.get("field"),
                 "answers": session.get("answers", {})
             }
-            rag_db.add_json(user_json)
+            # Save to user's own RAG DB (by company name, uid, and field)
+            company_name = session.get("name") or "Unknown"
+            field_val = session.get("field")
+            user_db = rag_db_manager.get_user_db(company_name, session["uid"], field_val)
+            user_db.add_json(user_json)
             if "answers" in session:
                 del session["answers"]
             session.modified = True
