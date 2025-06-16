@@ -2,11 +2,13 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .mongo_client import collection
-from .rag_client import rag_db_manager  # Change here
+from .rag_client import rag_db_manager
 import json
 import re
 import uuid
 import os
+import tempfile
+from .file_utils import extract_text_chunks_from_file
 
 TREE_PATH = os.path.join(os.path.dirname(__file__), 'question_tree.json')
 with open(TREE_PATH, 'r') as f:
@@ -14,6 +16,14 @@ with open(TREE_PATH, 'r') as f:
 
 def chatbot_form(request):
     return render(request, "chat.html")
+
+def get_user_meta(session):
+    return {
+        "name": session.get("name"),
+        "contact": session.get("contact"),
+        "email": session.get("email"),
+        "field": session.get("field"),
+    }
 
 @csrf_exempt
 def chatbot_api(request):
@@ -32,7 +42,6 @@ def chatbot_api(request):
     email = data.get("email", "").strip()
     field_selected = data.get("field", "").lower()
     current_index = data.get("question_index", 0)
-
     session = request.session
 
     if action == "name":
@@ -43,12 +52,13 @@ def chatbot_api(request):
         collection.insert_one(user_data)
         session["uid"] = generated_uid
         session["name"] = name
+        session["company_name"] = name
         session["answers"] = {}
         session["field"] = None
         session["contact"] = None
         session["email"] = None
         session.modified = True
-        return JsonResponse({"message": f"Hi {name}!", "uid": generated_uid})
+        return JsonResponse({"message": f"Hi {name}!", "uid": generated_uid, "company_name": name})
 
     elif action == "contact":
         if not (uid and contact):
@@ -113,24 +123,28 @@ def chatbot_api(request):
                 session.modified = True
 
         if current_index >= len(questions):
-            user_json = {
-                "uid": session["uid"],
-                "name": session.get("name"),
-                "contact": session.get("contact"),
-                "email": session.get("email"),
-                "field": session.get("field"),
-                "answers": session.get("answers", {})
-            }
-            # Save to user's own RAG DB (by company name, uid, and field)
-            company_name = session.get("name") or "Unknown"
+            company_name = session.get("company_name") or session.get("name") or "Unknown"
             field_val = session.get("field")
             user_db = rag_db_manager.get_user_db(company_name, session["uid"], field_val)
-            user_db.add_json(user_json)
+            meta = get_user_meta(session)
+            chunks = []
+            for q, a in session.get("answers", {}).items():
+                chunks.append({
+                    "chunk_type": "qa",
+                    "question": q,
+                    "answer": a
+                })
+            user_db.save_record({
+                "uid": session["uid"],
+                "meta": meta,
+                "chunks": chunks
+            })
             if "answers" in session:
                 del session["answers"]
             session.modified = True
             return JsonResponse({
-                "message": "All questions have been completed. Thank you!"
+                "message": "Do you want to add company data in files?",
+                "show_file_upload": True
             })
 
         question = questions[current_index]
@@ -145,3 +159,54 @@ def chatbot_api(request):
 
     else:
         return JsonResponse({"error": "Unknown action"}, status=400)
+
+@csrf_exempt
+def chatbot_file_upload(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST method allowed"}, status=405)
+
+    uid = request.POST.get("uid")
+    company_name = request.session.get("company_name") or request.POST.get("company_name")
+    field_val = request.POST.get("field")
+
+    if not uid or not company_name or not field_val:
+        return JsonResponse({"error": "Missing uid, company_name, or field"}, status=400)
+
+    if "file" not in request.FILES:
+        return JsonResponse({"error": "No file uploaded"}, status=400)
+
+    uploaded_file = request.FILES["file"]
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        for chunk in uploaded_file.chunks():
+            tmp.write(chunk)
+        file_path = tmp.name
+
+    try:
+        file_chunks = extract_text_chunks_from_file(file_path, uploaded_file.name)
+    except Exception as e:
+        os.remove(file_path)
+        return JsonResponse({"error": f"File parsing error: {str(e)}"}, status=500)
+    os.remove(file_path)
+
+    user_db = rag_db_manager.get_user_db(company_name, uid, field_val)
+    meta = get_user_meta(request.session)
+    # Load previous chunks (QAs) if exist
+    prev_chunks = []
+    if user_db.meta and user_db.meta[0].get("chunks"):
+        prev_chunks = user_db.meta[0]["chunks"]
+    # Add new file chunks
+    for chunk_index, chunk_text in enumerate(file_chunks):
+        prev_chunks.append({
+            "chunk_type": "file_chunk",
+            "file_name": uploaded_file.name,
+            "file_type": uploaded_file.name.split('.')[-1],
+            "chunk_index": chunk_index,
+            "content": chunk_text
+        })
+    user_db.save_record({
+        "uid": uid,
+        "meta": meta,
+        "chunks": prev_chunks
+    })
+
+    return JsonResponse({"message": "File scanned and all chunks saved in RAG DB user JSON."})

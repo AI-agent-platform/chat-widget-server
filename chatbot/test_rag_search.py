@@ -1,43 +1,64 @@
 from rag_client import rag_db_manager
 
-def find_best_answer(query, user_answers):
-    # Try exact match first
-    for q in user_answers:
-        if query.strip().lower() == q.strip().lower():
-            return user_answers[q]
-    # Fallback: match by presence of keywords (word overlap)
+def query_wants_whole_table(query):
+    # Add more patterns as needed
+    patterns = [
+        "show prices", "list prices", "show table", "show milk product prices",
+        "list milk product prices", "show price table", "all milk product prices"
+    ]
+    return any(p in query.lower() for p in patterns)
+
+def extract_exact_line(chunk_content, query):
+    if query_wants_whole_table(query):
+        return chunk_content  # Return the whole table
+    
+    lines = chunk_content.splitlines()
     query_words = set(query.lower().split())
-    best_q = None
+    best_line = None
     best_score = 0
-    for q in user_answers:
-        q_words = set(q.lower().split())
-        score = len(query_words & q_words)
+    for line in lines:
+        line_words = set(line.lower().split())
+        score = len(query_words & line_words)
         if score > best_score:
             best_score = score
-            best_q = q
-    if best_q and best_score > 0:
-        return user_answers[best_q]
-    return None
+            best_line = line
+    if best_line and best_score > 0:
+        return best_line
+    matching_lines = [line for line in lines if any(word in line.lower() for word in query_words)]
+    if matching_lines:
+        return "\n".join(matching_lines)
+    return chunk_content
 
 def main():
-    company_name = "Kavinda"
-    uid = "5e2db1f6-486c-42c1-aca9-d1d09262a14d"
+    company_name = "Food city"
+    uid = "83e31dcf-6d06-400f-a771-b3ade5cc311d"
     field = "agriculture"
 
-    # User input for question
-    query = input("Ask your question: ")
-
     user_db = rag_db_manager.get_user_db(company_name, uid, field)
+    record = user_db.meta[0] if user_db.meta else None
+    if not record:
+        return
+    query = input("Question: ").strip().lower()
+
+    # 1. Try to match exact QA first
+    for chunk in record["chunks"]:
+        if chunk.get("chunk_type") == "qa":
+            if query == chunk["question"].strip().lower():
+                print(chunk['answer'])
+                return
+
+    # 2. Try vector search for best chunk (QA or file)
     results = user_db.hybrid_search(query, top_k=1, alpha=0.5)
     if not results:
-        print("No results found for this user.")
+        print("No relevant answer found.")
         return
 
-    user = results[0].get("json", results[0])
-    answers = user.get("answers", {})
-    answer = find_best_answer(query, answers)
-    if answer:
-        print(answer)
+    best_chunk = results[0]
+    if best_chunk.get("chunk_type") == "qa":
+        print(best_chunk['answer'])
+    elif best_chunk.get("chunk_type") == "file_chunk":
+        exact = extract_exact_line(best_chunk["content"], query)
+        print(exact)
     else:
         print("No relevant answer found.")
 

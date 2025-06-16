@@ -115,6 +115,8 @@
     let latestQuestionType = null;
     let latestOptions = null;
     let latestQuestionId = null;
+    let fileUploadState = false;
+    let companyName = null; // Track company/user name for file upload
 
     function appendMessage(message, isUser = false) {
         const div = document.createElement("div");
@@ -167,7 +169,6 @@
         botButtons.innerHTML = "";
         currentField = field;
         questionIndex = 1;
-        // Send "field" action first to save the field and get the first question
         const data = await postJson({ action: "field", uid, field });
         appendMessage(data.message, false);
 
@@ -188,7 +189,6 @@
     async function handleButtonAnswer(optionValue) {
         appendMessage(optionValue, true);
         botButtons.innerHTML = "";
-        // SEND answer and question_id to backend!
         const data = await postJson({
             action: "field_questions",
             uid,
@@ -210,9 +210,71 @@
                 setInput(true, "Answer here...");
             }
         } else {
-            appendMessage(data.message || "Thanks for your responses!", false);
+            if (data.show_file_upload) {
+                askForFileUpload();
+                setInput(false);
+            } else {
+                appendMessage(data.message || "Thanks for your responses!", false);
+                setInput(false);
+            }
+        }
+    }
+
+    function askForFileUpload() {
+        appendMessage("Do you want to add company data in files?");
+        showBotButtons([
+            {title: "Yes", payload: "yes"},
+            {title: "No", payload: "no"}
+        ], handleFileUploadChoice);
+    }
+
+    async function handleFileUploadChoice(choice) {
+        botButtons.innerHTML = "";
+        if (choice === "yes") {
+            appendMessage("Please upload your file (csv, pdf, docx, txt, xlsx).", false);
+            fileUploadState = true;
+            showFileUploadInput();
+        } else {
+            appendMessage("Thanks for your responses!", false);
             setInput(false);
         }
+    }
+
+    function showFileUploadInput() {
+        botButtons.innerHTML = "";
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".csv,.xlsx,.xls,.pdf,.docx,.txt";
+        input.style.marginTop = "10px";
+        input.onchange = async function() {
+            if (input.files.length === 0) return;
+            const file = input.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("uid", uid);
+            formData.append("company_name", companyName || "Unknown"); // Use the captured company/user name
+            formData.append("field", currentField);
+
+            appendMessage("Uploading file...", false);
+            try {
+                const res = await fetch("/chat/api/upload-file/", {
+                    method: "POST",
+                    body: formData
+                });
+                const json = await res.json();
+                if (json.error) {
+                    appendMessage("File upload error: " + json.error, false);
+                    setInput(false);
+                } else {
+                    appendMessage("File uploaded and saved successfully in RAG DB.", false);
+                    appendMessage("Thanks for your responses!", false);
+                    setInput(false);
+                }
+            } catch (e) {
+                appendMessage("Network/file error. Please try again.", false);
+            }
+        };
+        botButtons.appendChild(input);
     }
 
     async function handleUserInput() {
@@ -224,6 +286,7 @@
         if (chatState === "ask_name") {
             const data = await postJson({ action: "name", name: msg });
             uid = data.uid;
+            companyName = msg; // Save for file upload!
             appendMessage("Hi " + msg + "!", false);
             appendMessage("What is your contact number?", false);
             chatState = "ask_contact";
@@ -262,7 +325,6 @@
                 setInput(false);
                 return;
             }
-            // SEND answer and question_id to backend!
             const data = await postJson({
                 action: "field_questions",
                 uid,
@@ -284,8 +346,13 @@
                     setInput(true, "Answer here...");
                 }
             } else {
-                appendMessage(data.message || "Thanks for your responses!", false);
-                setInput(false);
+                if (data.show_file_upload) {
+                    askForFileUpload();
+                    setInput(false);
+                } else {
+                    appendMessage(data.message || "Thanks for your responses!", false);
+                    setInput(false);
+                }
             }
         }
     }
