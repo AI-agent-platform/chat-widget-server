@@ -1,66 +1,43 @@
-from rag_client import rag_db_manager
+import json
+from sentence_transformers import SentenceTransformer, util
 
-def query_wants_whole_table(query):
-    # Add more patterns as needed
-    patterns = [
-        "show prices", "list prices", "show table", "show milk product prices",
-        "list milk product prices", "show price table", "all milk product prices"
-    ]
-    return any(p in query.lower() for p in patterns)
+# Load your metadata
+with open("meta.json", "r", encoding="utf-8") as f:
+    meta = json.load(f)[0]
 
-def extract_exact_line(chunk_content, query):
-    if query_wants_whole_table(query):
-        return chunk_content  # Return the whole table
-    
-    lines = chunk_content.splitlines()
-    query_words = set(query.lower().split())
-    best_line = None
-    best_score = 0
-    for line in lines:
-        line_words = set(line.lower().split())
-        score = len(query_words & line_words)
-        if score > best_score:
-            best_score = score
-            best_line = line
-    if best_line and best_score > 0:
-        return best_line
-    matching_lines = [line for line in lines if any(word in line.lower() for word in query_words)]
-    if matching_lines:
-        return "\n".join(matching_lines)
-    return chunk_content
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-def main():
-    company_name = "Food city"
-    uid = "83e31dcf-6d06-400f-a771-b3ade5cc311d"
-    field = "agriculture"
+# Prepare texts and metadata for search
+texts = []
+answer_refs = []
+for chunk in meta["chunks"]:
+    if chunk["chunk_type"] == "qa":
+        texts.append(f"Q: {chunk['question']} A: {chunk['answer']}")
+        answer_refs.append(chunk['answer'])
+    elif chunk["chunk_type"] == "file_chunk":
+        # For file chunks, treat each line as a possible answer
+        for line in chunk["content"].splitlines():
+            if line.strip():
+                texts.append(line.strip())
+                answer_refs.append(line.strip())
 
-    user_db = rag_db_manager.get_user_db(company_name, uid, field)
-    record = user_db.meta[0] if user_db.meta else None
-    if not record:
-        return
-    query = input("Question: ").strip().lower()
+# Pre-compute embeddings
+embeddings = model.encode(texts, convert_to_tensor=True)
 
-    # 1. Try to match exact QA first
-    for chunk in record["chunks"]:
-        if chunk.get("chunk_type") == "qa":
-            if query == chunk["question"].strip().lower():
-                print(chunk['answer'])
-                return
+def answer_only_search(query):
+    query_emb = model.encode(query, convert_to_tensor=True)
+    cos_scores = util.pytorch_cos_sim(query_emb, embeddings)[0]
+    best_idx = int(cos_scores.argmax())
+    answer = answer_refs[best_idx]
 
-    # 2. Try vector search for best chunk (QA or file)
-    results = user_db.hybrid_search(query, top_k=1, alpha=0.5)
-    if not results:
-        print("No relevant answer found.")
-        return
-
-    best_chunk = results[0]
-    if best_chunk.get("chunk_type") == "qa":
-        print(best_chunk['answer'])
-    elif best_chunk.get("chunk_type") == "file_chunk":
-        exact = extract_exact_line(best_chunk["content"], query)
-        print(exact)
-    else:
-        print("No relevant answer found.")
+    # Optional: If price is requested, try to pick out the price value
+    if "price" in query.lower() or "cost" in query.lower():
+        import re
+        match = re.search(r'(Rs\.\s*\d+\.?\d*)|(\d+\.?\d*)', answer)
+        if match:
+            return match.group(0)
+    return answer
 
 if __name__ == "__main__":
-    main()
+    q = input("Ask: ")
+    print(answer_only_search(q))
