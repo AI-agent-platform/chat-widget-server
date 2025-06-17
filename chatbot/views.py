@@ -134,11 +134,11 @@ def chatbot_api(request):
                     "question": q,
                     "answer": a
                 })
-            user_db.save_record({
+            user_db.add_records([{
                 "uid": session["uid"],
                 "meta": meta,
                 "chunks": chunks
-            })
+            }])
             if "answers" in session:
                 del session["answers"]
             session.modified = True
@@ -190,23 +190,18 @@ def chatbot_file_upload(request):
 
     user_db = rag_db_manager.get_user_db(company_name, uid, field_val)
     meta = get_user_meta(request.session)
-    # Load previous chunks (QAs) if exist
+
     prev_chunks = []
     if user_db.meta and user_db.meta[0].get("chunks"):
         prev_chunks = user_db.meta[0]["chunks"]
-    # Add new file chunks
-    for chunk_index, chunk_text in enumerate(file_chunks):
-        prev_chunks.append({
-            "chunk_type": "file_chunk",
-            "file_name": uploaded_file.name,
-            "file_type": uploaded_file.name.split('.')[-1],
-            "chunk_index": chunk_index,
-            "content": chunk_text
-        })
-    user_db.save_record({
+
+    # file_chunks is already a list of dicts in correct format! Just extend
+    prev_chunks.extend(file_chunks)
+
+    user_db.add_records([{
         "uid": uid,
         "meta": meta,
         "chunks": prev_chunks
-    })
+    }])
 
     return JsonResponse({"message": "File scanned and all chunks saved in RAG DB user JSON."})
