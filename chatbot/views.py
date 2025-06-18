@@ -9,6 +9,7 @@ import uuid
 import os
 import tempfile
 from .file_utils import extract_text_chunks_from_file
+from .rag_pipeline import create_rag_pipeline
 
 TREE_PATH = os.path.join(os.path.dirname(__file__), 'question_tree.json')
 with open(TREE_PATH, 'r') as f:
@@ -205,3 +206,31 @@ def chatbot_file_upload(request):
     }])
 
     return JsonResponse({"message": "File scanned and all chunks saved in RAG DB user JSON."})
+@csrf_exempt
+def chatbot_rag_query(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST method allowed"}, status=405)
+
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    company_name = data.get("company_name")
+    uid = data.get("uid")
+    field = data.get("field")
+    query = data.get("query")
+
+    if not company_name or not uid or not query:
+        return JsonResponse({"error": "Missing company_name, uid, or query"}, status=400)
+
+    # Create the RAG pipeline for the user
+    rag_pipeline = create_rag_pipeline(company_name, uid, field)
+    
+    # Get the answer
+    result = rag_pipeline(query)
+    
+    return JsonResponse({
+        "answer": result["answer"],
+        "sources": result["sources"]
+    })
