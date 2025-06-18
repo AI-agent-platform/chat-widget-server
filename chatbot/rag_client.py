@@ -2,7 +2,7 @@ import os
 import json
 import re
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings  # UPDATED import
+from langchain.embeddings import HuggingFaceEmbeddings  # ✅ FIXED
 
 BASE_FAISS_DIR = r"E:\RAGDB"
 os.makedirs(BASE_FAISS_DIR, exist_ok=True)
