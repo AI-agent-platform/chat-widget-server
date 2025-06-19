@@ -32,6 +32,18 @@ class UserRAGDBManager:
             folder = self.get_user_folder(company_name, uid, field)
             self.cache[key] = UserRAGVectorDB(folder)
         return self.cache[key]
+    
+    def get_all_user_dbs(self, company_name, uid):
+        """
+        Return all UserRAGVectorDBs for a user (across all field folders).
+        """
+        dbs = []
+        company_folder_prefix = f"{sanitize_folder_name(company_name)}_{uid}"
+        for field_folder in os.listdir(self.base_dir):
+            path = os.path.join(self.base_dir, field_folder, company_folder_prefix)
+            if os.path.isdir(path):
+                dbs.append(UserRAGVectorDB(path))
+        return dbs
 
 class UserRAGVectorDB:
     def __init__(self, folder_path):
@@ -60,10 +72,6 @@ class UserRAGVectorDB:
             json.dump(self.meta, f, indent=2, ensure_ascii=False)
 
     def add_records(self, records):
-        """
-        records: list of dicts with 'uid', 'meta', 'chunks'
-        Each chunk is stored as a Document with full per-chunk metadata for traceability.
-        """
         from langchain.schema import Document  # local import to avoid cyclic
         docs = []
         meta_list = []
@@ -109,6 +117,7 @@ class UserRAGVectorDB:
         self.save()
 
     def search(self, query, top_k=3):
+        # Vector search
         if not self.index:
             return []
         results = self.index.similarity_search(query, k=top_k)
@@ -122,5 +131,46 @@ class UserRAGVectorDB:
                 result["field"] = result.get("meta", {}).get("field")
             output.append(result)
         return output
+
+    def keyword_search(self, query, top_k=3):
+        """Simple keyword search in meta and content."""
+        found = []
+        q = query.lower()
+        for entry in self.meta:
+            chunk = entry.get("chunk", {})
+            content = ""
+            if chunk.get("chunk_type") == "qa":
+                content = f"{chunk.get('question','')} {chunk.get('answer','')}"
+            elif chunk.get("chunk_type") == "file_chunk":
+                content = chunk.get("content", "")
+            else:
+                content = json.dumps(chunk, ensure_ascii=False)
+            # Check for keyword hit
+            if q in content.lower():
+                found.append({
+                    "uid": entry["uid"],
+                    "meta": entry["meta"],
+                    "chunk": chunk,
+                    "content": content
+                })
+            if len(found) >= top_k:
+                break
+        return found
+
+    def hybrid_search(self, query, top_k=3):
+        """Combine vector and keyword search, deduplicate, prefer keyword hits."""
+        vector_results = self.search(query, top_k=top_k)
+        keyword_results = self.keyword_search(query, top_k=top_k)
+        # Deduplicate by content
+        seen = set()
+        results = []
+        for r in keyword_results + vector_results:
+            key = str(r.get("content"))
+            if key not in seen:
+                results.append(r)
+                seen.add(key)
+            if len(results) >= top_k:
+                break
+        return results
 
 rag_db_manager = UserRAGDBManager()
