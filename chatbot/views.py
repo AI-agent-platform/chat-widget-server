@@ -11,6 +11,20 @@ import tempfile
 from .file_utils import extract_text_chunks_from_file
 from .rag_pipeline import create_rag_pipeline
 
+# Import transformers for loading the fine-tuned models
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+FIELD_LLM_PATHS = {
+    "agriculture": r"E:\Finetuned LLMs\fine_tuned_agriculture_model\final_model",
+    "tourism": r"E:\Finetuned LLMs\fine_tuned_tourism_model\final_model",
+    "transport": r"E:\Finetuned LLMs\fine_tuned_transport_model\final_model",
+}
+FIELD_LLM_TOKENIZERS = {
+    "agriculture": r"E:\Finetuned LLMs\fine_tuned_agriculture_model\final_tokenizer",
+    "tourism": r"E:\Finetuned LLMs\fine_tuned_tourism_model\final_tokenizer",
+    "transport": r"E:\Finetuned LLMs\fine_tuned_transport_model\final_tokenizer",
+}
+
 TREE_PATH = os.path.join(os.path.dirname(__file__), 'question_tree.json')
 with open(TREE_PATH, 'r') as f:
     QUESTION_TREE = json.load(f)
@@ -25,6 +39,16 @@ def get_user_meta(session):
         "email": session.get("email"),
         "field": session.get("field"),
     }
+
+def get_finetuned_llm(field):
+    path = FIELD_LLM_PATHS.get(field)
+    tokenizer_path = FIELD_LLM_TOKENIZERS.get(field)
+    if not path or not tokenizer_path:
+        return None
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    model = AutoModelForCausalLM.from_pretrained(path)
+    llm_pipe = pipeline("text-generation", model=model, tokenizer=tokenizer, max_new_tokens=128)
+    return llm_pipe
 
 @csrf_exempt
 def chatbot_api(request):
@@ -46,8 +70,6 @@ def chatbot_api(request):
     session = request.session
 
     if action == "name":
-        if not name:
-            return JsonResponse({"error": "Name is required"}, status=400)
         generated_uid = str(uuid.uuid4())
         user_data = {"uid": generated_uid, "name": name}
         collection.insert_one(user_data)
@@ -158,6 +180,78 @@ def chatbot_api(request):
             "next_action": "field_questions"
         })
 
+    elif action == "file_uploaded":
+        return JsonResponse({
+            "message": "🔥 Would you like to add more data about your business? (You can add advanced details powered by our Smart Assistant!)",
+            "more_data_prompt": True
+        })
+
+    elif action == "add_more_data":
+        choice = data.get("choice", "")
+        if choice == "no":
+            return JsonResponse({"message": "Thanks for your responses!"})
+        else:
+            field = session.get("field")
+            llm_hint = {
+                "agriculture": "Now you can add more information about your agriculture business. Ask or describe anything you want! When you're done, type 'exit' to finish.",
+                "tourism": "Now you can add more information about your tourism business. You can type anything about your business, and our Smart Assistant will help! When finished, type 'exit'.",
+                "transport": "Now you can add more information about your transport business. You can describe services, routes, vehicles, etc. Type 'exit' when done.",
+            }
+            session['llm_data'] = []
+            session['llm_data_active'] = True
+            session.modified = True
+            return JsonResponse({
+                "message": llm_hint.get(field, "Now you can add more business info! Type 'exit' to finish."),
+                "llm_mode": True
+            })
+
+    elif action == "llm_data_entry":
+        # LLM advanced data entry
+        user_message = data.get("message", "")
+        field = session.get("field")
+        company_name = session.get("company_name") or session.get("name") or "Unknown"
+        uid = session.get("uid")
+        if not field or not uid:
+            return JsonResponse({"error": "Session expired or field missing"}, status=400)
+        if user_message.lower().strip() == "exit":
+            # Save all LLM data to vector DB, clear state, and thank user
+            user_db = rag_db_manager.get_user_db(company_name, uid, field)
+            meta = get_user_meta(session)
+            # Add all collected QA pairs as chunks
+            llm_pairs = session.get("llm_data", [])
+            if llm_pairs:
+                user_db.add_records([{
+                    "uid": uid,
+                    "meta": meta,
+                    "chunks": [
+                        {"chunk_type": "qa", "question": q, "answer": a} for q, a in llm_pairs
+                    ]
+                }])
+            session['llm_data'] = []
+            session['llm_data_active'] = False
+            session.modified = True
+            return JsonResponse({"message": "Thanks for your responses! Your advanced data has been saved."})
+        # Generate answer from LLM
+        llm_pipe = get_finetuned_llm(field)
+        if not llm_pipe:
+            return JsonResponse({"error": f"No LLM found for field '{field}'"}, status=500)
+        llm_output = llm_pipe(user_message, max_new_tokens=128)[0]['generated_text']
+        # Extract only the answer, not the question
+        answer_only = llm_output
+        if user_message in llm_output:
+            answer_only = llm_output.split(user_message, 1)[-1].strip(" :\n")
+        elif "?" in llm_output:
+            answer_only = llm_output.split("?", 1)[-1].strip(" :\n")
+        # Save Q/A pair in session (keep both)
+        llm_pairs = session.get("llm_data", [])
+        llm_pairs.append((user_message, answer_only))
+        session["llm_data"] = llm_pairs
+        session.modified = True
+        return JsonResponse({
+            "message": answer_only,
+            "llm_mode": True
+        })
+
     else:
         return JsonResponse({"error": "Unknown action"}, status=400)
 
@@ -196,7 +290,6 @@ def chatbot_file_upload(request):
     if user_db.meta and user_db.meta[0].get("chunks"):
         prev_chunks = user_db.meta[0]["chunks"]
 
-    # file_chunks is already a list of dicts in correct format! Just extend
     prev_chunks.extend(file_chunks)
 
     user_db.add_records([{
@@ -205,7 +298,8 @@ def chatbot_file_upload(request):
         "chunks": prev_chunks
     }])
 
-    return JsonResponse({"message": "File scanned and all chunks saved in RAG DB user JSON."})
+    return JsonResponse({"next_action": "file_uploaded"})
+
 @csrf_exempt
 def chatbot_rag_query(request):
     if request.method != "POST":
@@ -224,12 +318,8 @@ def chatbot_rag_query(request):
     if not company_name or not uid or not query:
         return JsonResponse({"error": "Missing company_name, uid, or query"}, status=400)
 
-    # Create the RAG pipeline for the user
     rag_pipeline = create_rag_pipeline(company_name, uid, field)
-    
-    # Get the answer
     result = rag_pipeline(query)
-    
     return JsonResponse({
         "answer": result["answer"],
         "sources": result["sources"]

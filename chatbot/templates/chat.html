@@ -116,7 +116,8 @@
     let latestOptions = null;
     let latestQuestionId = null;
     let fileUploadState = false;
-    let companyName = null; // Track company/user name for file upload
+    let companyName = null;
+    let llmMode = false;
 
     function appendMessage(message, isUser = false) {
         const div = document.createElement("div");
@@ -154,7 +155,7 @@
                 body: JSON.stringify(data)
             });
             const json = await res.json();
-            chatMessages.lastChild.remove(); // remove "Processing..."
+            chatMessages.lastChild.remove();
             return json;
         } catch (e) {
             chatMessages.lastChild.remove();
@@ -235,24 +236,31 @@
             fileUploadState = true;
             showFileUploadInput();
         } else {
-            appendMessage("Thanks for your responses!", false);
-            setInput(false);
+            appendMessage("🔥 Would you like to add more data about your business? (You can add advanced details powered by our Smart Assistant!)", false);
+            showBotButtons([
+                {title: "Yes", payload: "yes"},
+                {title: "No", payload: "no"}
+            ], handleAddMoreDataChoice);
         }
     }
 
     function showFileUploadInput() {
         botButtons.innerHTML = "";
+        const fileUploadContainer = document.createElement("div");
+        fileUploadContainer.id = "file-upload-container";
+        fileUploadContainer.style.marginTop = "10px";
+
         const input = document.createElement("input");
         input.type = "file";
         input.accept = ".csv,.xlsx,.xls,.pdf,.docx,.txt";
-        input.style.marginTop = "10px";
+
         input.onchange = async function() {
             if (input.files.length === 0) return;
             const file = input.files[0];
             const formData = new FormData();
             formData.append("file", file);
             formData.append("uid", uid);
-            formData.append("company_name", companyName || "Unknown"); // Use the captured company/user name
+            formData.append("company_name", companyName || "Unknown");
             formData.append("field", currentField);
 
             appendMessage("Uploading file...", false);
@@ -262,19 +270,50 @@
                     body: formData
                 });
                 const json = await res.json();
+                if (fileUploadContainer.parentNode) {
+                    fileUploadContainer.parentNode.removeChild(fileUploadContainer);
+                }
                 if (json.error) {
                     appendMessage("File upload error: " + json.error, false);
                     setInput(false);
                 } else {
-                    appendMessage("File uploaded and saved successfully in RAG DB.", false);
-                    appendMessage("Thanks for your responses!", false);
+                    appendMessage("File uploaded and saved successfully.", false);
+                    // After upload, prompt for more data via LLM
+                    const fileActionRes = await postJson({ action: "file_uploaded", uid, field: currentField });
+                    appendMessage(fileActionRes.message, false);
+                    if (fileActionRes.more_data_prompt) {
+                        showBotButtons([
+                            {title: "Yes", payload: "yes"},
+                            {title: "No", payload: "no"}
+                        ], handleAddMoreDataChoice);
+                    }
                     setInput(false);
                 }
             } catch (e) {
+                if (fileUploadContainer.parentNode) {
+                    fileUploadContainer.parentNode.removeChild(fileUploadContainer);
+                }
                 appendMessage("Network/file error. Please try again.", false);
             }
         };
-        botButtons.appendChild(input);
+        fileUploadContainer.appendChild(input);
+        botButtons.appendChild(fileUploadContainer);
+    }
+
+    function handleAddMoreDataChoice(choice) {
+        botButtons.innerHTML = "";
+        if (choice === "no") {
+            appendMessage("Thanks for your responses!", false);
+            setInput(false);
+        } else {
+            postJson({ action: "add_more_data", uid, field: currentField, choice: "yes" })
+                .then(data => {
+                    appendMessage(data.message, false);
+                    llmMode = true;
+                    chatState = "llm_data_entry";
+                    setInput(true, "Add more data or type 'exit' to finish...");
+                });
+        }
     }
 
     async function handleUserInput() {
@@ -286,7 +325,7 @@
         if (chatState === "ask_name") {
             const data = await postJson({ action: "name", name: msg });
             uid = data.uid;
-            companyName = msg; // Save for file upload!
+            companyName = msg;
             appendMessage("Hi " + msg + "!", false);
             appendMessage("What is your contact number?", false);
             chatState = "ask_contact";
@@ -353,6 +392,19 @@
                     appendMessage(data.message || "Thanks for your responses!", false);
                     setInput(false);
                 }
+            }
+        }
+        else if (chatState === "llm_data_entry" && llmMode) {
+            if (msg.toLowerCase() === "exit") {
+                const data = await postJson({ action: "llm_data_entry", uid, field: currentField, message: msg });
+                appendMessage(data.message, false);
+                llmMode = false;
+                chatState = "end";
+                setInput(false);
+            } else {
+                const data = await postJson({ action: "llm_data_entry", uid, field: currentField, message: msg });
+                appendMessage(data.message, false);
+                setInput(true, "Add more data or type 'exit' to finish...");
             }
         }
     }
