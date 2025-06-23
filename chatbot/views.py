@@ -1,17 +1,17 @@
+import os
+import re
+import json
+import uuid
+import tempfile
+import markdown
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from .mongo_client import collection
 from .rag_client import rag_db_manager
-import json
-import re
-import uuid
-import os
-import tempfile
 from .file_utils import extract_text_chunks_from_file
 from .rag_pipeline import create_rag_pipeline
 
-# Import transformers for loading the fine-tuned models
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 
 FIELD_LLM_PATHS = {
@@ -80,6 +80,7 @@ def chatbot_api(request):
         session["field"] = None
         session["contact"] = None
         session["email"] = None
+        session["dual_agents_ready"] = False
         session.modified = True
         return JsonResponse({"message": f"Hi {name}!", "uid": generated_uid, "company_name": name})
 
@@ -189,7 +190,12 @@ def chatbot_api(request):
     elif action == "add_more_data":
         choice = data.get("choice", "")
         if choice == "no":
-            return JsonResponse({"message": "Thanks for your responses!"})
+            session["dual_agents_prompt"] = True
+            session.modified = True
+            return JsonResponse({
+                "message": "Would you like me to create your dual AI agents now? One for you (business owner) and one for your customers, each with their own privileges and endpoints!",
+                "dual_agents_prompt": True
+            })
         else:
             field = session.get("field")
             llm_hint = {
@@ -206,7 +212,6 @@ def chatbot_api(request):
             })
 
     elif action == "llm_data_entry":
-        # LLM advanced data entry
         user_message = data.get("message", "")
         field = session.get("field")
         company_name = session.get("company_name") or session.get("name") or "Unknown"
@@ -214,10 +219,8 @@ def chatbot_api(request):
         if not field or not uid:
             return JsonResponse({"error": "Session expired or field missing"}, status=400)
         if user_message.lower().strip() == "exit":
-            # Save all LLM data to vector DB, clear state, and thank user
             user_db = rag_db_manager.get_user_db(company_name, uid, field)
             meta = get_user_meta(session)
-            # Add all collected QA pairs as chunks
             llm_pairs = session.get("llm_data", [])
             if llm_pairs:
                 user_db.add_records([{
@@ -229,20 +232,21 @@ def chatbot_api(request):
                 }])
             session['llm_data'] = []
             session['llm_data_active'] = False
+            session["dual_agents_prompt"] = True
             session.modified = True
-            return JsonResponse({"message": "Thanks for your responses! Your advanced data has been saved."})
-        # Generate answer from LLM
+            return JsonResponse({
+                "message": "Thanks for your responses! Your advanced data has been saved.",
+                "dual_agents_prompt": True,
+            })
         llm_pipe = get_finetuned_llm(field)
         if not llm_pipe:
             return JsonResponse({"error": f"No LLM found for field '{field}'"}, status=500)
         llm_output = llm_pipe(user_message, max_new_tokens=128)[0]['generated_text']
-        # Extract only the answer, not the question
         answer_only = llm_output
         if user_message in llm_output:
             answer_only = llm_output.split(user_message, 1)[-1].strip(" :\n")
         elif "?" in llm_output:
             answer_only = llm_output.split("?", 1)[-1].strip(" :\n")
-        # Save Q/A pair in session (keep both)
         llm_pairs = session.get("llm_data", [])
         llm_pairs.append((user_message, answer_only))
         session["llm_data"] = llm_pairs
@@ -252,6 +256,30 @@ def chatbot_api(request):
             "llm_mode": True
         })
 
+    elif action == "dual_agents_confirm":
+        company_name = session.get("company_name")
+        uid = session.get("uid")
+        session["dual_agents_ready"] = True
+        session.modified = True
+        base_url = "http://127.0.0.1:8000/chat"
+        admin_url = f"{base_url}/admin/{company_name}/{uid}/"
+        client_url = f"{base_url}/client/{company_name}/{uid}/"
+        docx_url = f"/chat/download-instructions-docx/{company_name}/{uid}/"
+        html_url = f"/chat/download-instructions-html/{company_name}/{uid}/"
+        md_path = os.path.join(os.path.dirname(__file__), "DualAgent_Instruction.md")
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
+        md_content = md_content.replace("{company_name}", company_name).replace("{uid}", uid)
+        html_content = markdown.markdown(md_content, extensions=['extra', 'smarty'])
+        return JsonResponse({
+            "message": "🎉 Your dual AI agents have been created and are ready to use!",
+            "admin_url": admin_url,
+            "client_url": client_url,
+            "instructions": html_content,
+            "docx_url": docx_url,
+            "html_url": html_url,
+            "thank_you": "Thank you for using our platform!"
+        })
     else:
         return JsonResponse({"error": "Unknown action"}, status=400)
 
@@ -324,3 +352,66 @@ def chatbot_rag_query(request):
         "answer": result["answer"],
         "sources": result["sources"]
     })
+
+@csrf_exempt
+def business_owner_agent_api(request, company_name, uid):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    action = data.get("action", "query")
+    field = data.get("field")
+    if action == "query":
+        query = data.get("query")
+        if not query:
+            return JsonResponse({"error": "Missing query"}, status=400)
+        rag_pipeline = create_rag_pipeline(company_name, uid, field)
+        result = rag_pipeline(query)
+        return JsonResponse({"answer": result["answer"], "sources": result["sources"]})
+    elif action == "update":
+        field_name = data.get("field")
+        value = data.get("value")
+        if not (field and field_name and value):
+            return JsonResponse({"error": "Missing update parameters"}, status=400)
+        user_db = rag_db_manager.get_user_db(company_name, uid, field)
+        user_db.add_records([{
+            "uid": uid,
+            "meta": {},
+            "chunks": [{
+                "chunk_type": "qa",
+                "question": f"UPDATE FIELD: {field_name}",
+                "answer": value
+            }]
+        }])
+        return JsonResponse({"message": f"Field '{field_name}' updated with value: {value}"})
+    else:
+        return JsonResponse({"error": "Unknown action"}, status=400)
+
+@csrf_exempt
+def client_agent_api(request, company_name, uid):
+    if request.method != "POST":
+        return JsonResponse({"error": "Only POST allowed"}, status=405)
+    try:
+        data = json.loads(request.body.decode("utf-8"))
+    except Exception:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    query = data.get("query")
+    field = data.get("field")
+    if not query:
+        return JsonResponse({"error": "Missing query"}, status=400)
+    rag_pipeline = create_rag_pipeline(company_name, uid, field)
+    result = rag_pipeline(query)
+    return JsonResponse({"answer": result["answer"]})
+
+# ---- HTML DOWNLOAD VIEW ----
+def download_dual_agent_html(request, company_name, uid):
+    md_path = os.path.join(os.path.dirname(__file__), "DualAgent_Instruction.md")
+    with open(md_path, "r", encoding="utf-8") as f:
+        md_content = f.read()
+    md_content = md_content.replace("{company_name}", company_name).replace("{uid}", uid)
+    html_content = markdown.markdown(md_content, extensions=['extra', 'smarty'])
+    response = HttpResponse(html_content, content_type='text/html')
+    response['Content-Disposition'] = f'attachment; filename=DualAgent_Instruction_{company_name}_{uid}.html'
+    return response
