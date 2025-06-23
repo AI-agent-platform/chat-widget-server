@@ -42,6 +42,7 @@
             background: #eef1fa;
             color: #25253a;
             width: fit-content;
+            word-break: break-word;
         }
         .message.user {
             background: #5c67f2;
@@ -90,6 +91,31 @@
         .bot-button:hover {
             background: #5c67f2;
         }
+        .instruction-box {
+            background: #f3f7fa;
+            border-radius: 8px;
+            padding: 12px 18px;
+            margin-top: 15px;
+            font-size: 0.97em;
+            color: #343454;
+            white-space: pre-line;
+        }
+        .api-url {
+            font-family: "Fira Mono", "Consolas", monospace;
+            background: #e4e6f7;
+            border-radius: 5px;
+            padding: 5px 8px;
+            margin: 6px 0;
+            display: block;
+            font-size: 0.98em;
+        }
+        .html-link {
+            display: inline-block;
+            margin-top: 10px;
+            font-weight: 600;
+            color: #4349d6;
+            text-decoration: none;
+        }
     </style>
 </head>
 <body>
@@ -118,11 +144,22 @@
     let fileUploadState = false;
     let companyName = null;
     let llmMode = false;
+    let dualAgentsPrompt = false;
+    let dualAgentsReady = false;
+    let dualAgentData = {};
 
     function appendMessage(message, isUser = false) {
         const div = document.createElement("div");
         div.className = "message" + (isUser ? " user" : "");
         div.textContent = message;
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function appendHtmlMessage(html) {
+        const div = document.createElement("div");
+        div.className = "message";
+        div.innerHTML = html;
         chatMessages.appendChild(div);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
@@ -278,7 +315,6 @@
                     setInput(false);
                 } else {
                     appendMessage("File uploaded and saved successfully.", false);
-                    // After upload, prompt for more data via LLM
                     const fileActionRes = await postJson({ action: "file_uploaded", uid, field: currentField });
                     appendMessage(fileActionRes.message, false);
                     if (fileActionRes.more_data_prompt) {
@@ -303,8 +339,7 @@
     function handleAddMoreDataChoice(choice) {
         botButtons.innerHTML = "";
         if (choice === "no") {
-            appendMessage("Thanks for your responses!", false);
-            setInput(false);
+            dualAgentsPromptFlow();
         } else {
             postJson({ action: "add_more_data", uid, field: currentField, choice: "yes" })
                 .then(data => {
@@ -314,6 +349,52 @@
                     setInput(true, "Add more data or type 'exit' to finish...");
                 });
         }
+    }
+
+    async function dualAgentsPromptFlow() {
+        dualAgentsPrompt = true;
+        showBotButtons([
+            {title: "Yes, create my dual AI agents", payload: "yes"},
+            {title: "No", payload: "no"}
+        ], async (choice) => {
+            botButtons.innerHTML = "";
+            if (choice === "yes") {
+                appendMessage("Setting up your dual AI agents...", false);
+                const data = await postJson({action: "dual_agents_confirm", uid, field: currentField});
+                if (data.admin_url && data.client_url) {
+                    dualAgentsReady = true;
+                    dualAgentData = data;
+                    appendHtmlMessage(
+                        `<div class="instruction-box">
+                            <b>🎩 Business Owner Agent:</b>
+                            <span class="api-url">${data.admin_url}</span>
+                            <b>🤝 Customer Agent:</b>
+                            <span class="api-url">${data.client_url}</span>
+                        </div>`
+                    );
+                    appendHtmlMessage(
+                        `<div class="instruction-box">${data.instructions || ""}</div>`
+                    );
+                    if (data.html_url) {
+                        appendHtmlMessage(
+                            `<a href="${data.html_url}" class="html-link" target="_blank">⬇️ Download your Dual Agent API Guide (HTML)</a>`
+                        );
+                    }
+                    appendMessage(data.thank_you || "Thank you for using our platform!", false);
+                } else {
+                    appendMessage("Failed to generate agent URLs.", false);
+                }
+                setInput(false);
+            } else {
+                appendMessage("You can always generate your dual agents later. Thank you!", false);
+                setInput(false);
+            }
+        });
+        appendMessage(
+            "Would you like me to create your dual AI agents now? One for you (business owner) and one for your customers, each with their own privileges and endpoints!",
+            false
+        );
+        chatState = "dual_agents_prompt";
     }
 
     async function handleUserInput() {
@@ -331,7 +412,6 @@
             chatState = "ask_contact";
             setInput(true, "Enter your contact number...");
         }
-
         else if (chatState === "ask_contact") {
             const phoneRegex = /^\+94\d{9}|0\d{9}$/;
             if (!phoneRegex.test(msg)) {
@@ -344,7 +424,6 @@
             chatState = "ask_email";
             setInput(true, "Enter your email...");
         }
-
         else if (chatState === "ask_email") {
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(msg)) {
@@ -357,7 +436,6 @@
             showBotButtons(data.buttons, handleFieldSelect);
             chatState = "select_field";
         }
-
         else if (chatState === "field_questions") {
             if (latestQuestionType === "button" && Array.isArray(latestOptions) && latestOptions.length > 0) {
                 appendMessage("Please select an option above.", false);
@@ -399,8 +477,7 @@
                 const data = await postJson({ action: "llm_data_entry", uid, field: currentField, message: msg });
                 appendMessage(data.message, false);
                 llmMode = false;
-                chatState = "end";
-                setInput(false);
+                dualAgentsPromptFlow();
             } else {
                 const data = await postJson({ action: "llm_data_entry", uid, field: currentField, message: msg });
                 appendMessage(data.message, false);
